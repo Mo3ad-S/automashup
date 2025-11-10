@@ -1,0 +1,39 @@
+# Memory-optimized configuration for WSL environments
+
+# Audio settings  
+audio:
+  sr: 22050  # Reduced sample rate to save memory
+  target_lufs: -14.0
+
+# Processing settings - MEMORY OPTIMIZED
+processing:
+  use_gpu: false  # Disable GPU to prevent VRAM issues in WSL
+  use_phase_vocoder: false  # Disable for memory savings
+  preserve_formants: false  # Disable for memory savings
+  crossfade_duration: 0.05  # Shorter crossfade
+  safe_mode: true  # CRITICAL: Enable safe mode
+  max_track_samples: 10000000  # Limit to ~7.5 min at 22kHz (much smaller)
+  chunk_size: 1000000  # Process in 45-second chunks
+  enable_memory_cleanup: true  # Force garbage collection
+
+# Disable memory-intensive features
+inpainting:
+  enabled: false  # Disable inpainting (very memory intensive)
+
+enhancement:
+  enabled: false  # Disable enhancement (uses ML models)
+
+mixing:
+  enabled: true  # Keep basic mixing
+  apply_eq: false  # Disable EQ processing
+  apply_compression: false  # Disable compression
+  apply_spatial: false  # Disable spatial processing
+  apply_ducking: false  # Disable ducking
+
+mastering:
+  enabled: false  # Disable mastering (memory intensive)
+
+quality:
+  threshold: 0.5  # Lower quality threshold
+  check_artifacts: false  # Disable artifact checking
+  check_silences: false  # Disable silence checking

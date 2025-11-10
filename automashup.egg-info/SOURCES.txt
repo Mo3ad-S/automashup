@@ -1,3 +1,4 @@
+LICENSE
 README.md
 setup.py
 automashup.egg-info/PKG-INFO

@@ -108,6 +108,8 @@ class Track:
         # we put 0 for convenience (see beats[-1] after)
         beats = [0]
         downbeats = [0]
+        # keeps in memory the last segment to make it last longer in case we do not find a segment matching the next track segment  
+        last_segment =  self.segments[0]
 
 
         print(f" ********************** Adjusting the song {self.name}  **********************")
@@ -152,19 +154,32 @@ class Track:
             if (not found_segment):
                 tempo = round(len(target_segment.beats)/target_segment.duration)
                 try:
-                    if tempo == 0:
-                        segment_length = 0
-                    else:
-                        segment_length = int((len(target_segment.beats) / (tempo / 60) * self.sr))
-                    audio = np.concatenate([audio, np.zeros(segment_length)])
-                    beats += [beats[-1] + (i + 1) / (tempo / 60) for i in range(len(target_segment.beats))]
-                    downbeats += [downbeats[-1] + (4 * i + 1) / (tempo / 60) for i in range(len(target_segment.beats) // 4)]
+                    if len(target_segment.beats) > 0:
+                        segment = last_segment  
+                        target_bpm = len(target_segment.beats)/target_segment.duration
+
+                        segment_fitted = segment.get_audio_beat_fitted(len(target_segment.beats), target_bpm, len(target_segment.audio), self.sr)
+                        audio = np.concatenate([audio, segment_fitted.audio])
+
+                        # reset first beat position per segment
+                        track_sr = target_track.sr
+                        track_beginning_temporal = target_segment.beats[0]
+                        track_beginning = track_beginning_temporal * track_sr
+                        # reset first beat position
+                        audio = np.array(audio)[round(track_beginning):]
+
+                        # we add the new beats to be able to sync after
+                        beats += [beats[-1] + phase_beat for phase_beat in segment_fitted.beats]
+                        downbeats += [downbeats[-1] + phase_downbeat for phase_downbeat in segment_fitted.downbeats]
+                    # If its empty we ignore it
+                    else: pass
                 except Exception as e:
                     print(f"Error fitting silence. Error: {e}")
             else:
                 try:
                     # if we find it, we make it fit to the desired beat number
                     if len(target_segment.beats) > 0:
+                        last_segment = segment
                         target_bpm = len(target_segment.beats)/target_segment.duration
 
                         segment_fitted = segment.get_audio_beat_fitted(len(target_segment.beats), target_bpm, len(target_segment.audio), self.sr)

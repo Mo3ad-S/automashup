@@ -13,6 +13,7 @@ Classifier: Topic :: Multimedia :: Sound/Audio :: Analysis
 Classifier: Programming Language :: Python :: 3.10
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: allin1==1.1.0
 Requires-Dist: barfi
 Requires-Dist: matplotlib
@@ -34,13 +35,14 @@ Dynamic: description
 Dynamic: description-content-type
 Dynamic: home-page
 Dynamic: license
+Dynamic: license-file
 Dynamic: requires-dist
 Dynamic: requires-python
 Dynamic: summary
 
 # Automashup: Automatic Music Mashups Creation
 
-Hi, and welcome to this GitHub repository, which is the companion repository for the article "Automashup: Automatic Music Mashups Creation," published at the GRETSI 2025 conference.
+Hi, and welcome to this GitHub repository, which is the companion repository for the article "Automashup: Automatic Music Mashups Creation," published at the GRETSI 2025 conference. The paper is accessible here: https://hal.science/hal-05191030/document.
 
 This repository contains two sub-repositories:
 - "app - backend and frontend," that contains the AutoMashup core functions, including the Mashup creation process and the GUI webpage,
@@ -49,16 +51,36 @@ This repository contains two sub-repositories:
 This repository is a regrouping of two other repositories:
 - https://github.com/MichaelMikkles/AutoMashup/
 - https://github.com/LeaMyl/Automashup_Mashup_Eval/
+
 which were the practical repositories used for development.
 
+## Files
+Files containing the subselection of FMA used in the paper, along with all the mashups created for the purpose, and metadata from FMA can be found here: https://zenodo.org/records/16921593
 
-https://github.com/user-attachments/assets/6c248242-a85b-4546-b142-1678b718c923
+## Examples
 
+Below are two examples of Mashups obtained from the FMA music archive. As you will see, the mashups are still far from being of professional audio quality. Future work will be dedicated to enhancing the audio quality, and notably using automatic mixing tools like [automix-toolkit](https://github.com/csteinmetz1/automix-toolkit).
+
+### Original song A
+
+https://github.com/user-attachments/assets/12994748-8c7e-48be-9450-7e86a9f23dec
+
+### Original song B
+
+https://github.com/user-attachments/assets/9fcdd5c9-c95b-4dea-948c-83d2ea17644c
+
+### Mashup: Vocal A + Instr B
+
+https://github.com/user-attachments/assets/334f85b9-8ab6-4e59-a8de-31d71b8be587
+
+### Mashup: Vocal B + Instr A
+
+https://github.com/user-attachments/assets/3e3b466d-9ba2-4355-b04c-82012a144b17
 
 ## Installation
-So, basically, a lot of external packages essential for this project do not follow the recent releases. Hence, installation is getting more and more difficult.
+So, many external packages essential for this project do not follow the recent releases. Hence, installation is becoming increasingly complex.
 
-To ensure that there will not be problem, you should defintely fix python to 3.10, and follow these steps (sorry for the inconvenience).
+To ensure that there won't be a problem, you should definitely fix Python to 3.10, and follow these steps (I'm sorry for the inconvenience).
 
 ### Set up a virtualenv
 First, set up the virtual environment. You may use the tool that you prefer, but we used conda on our side, hence we recommend it.
@@ -77,7 +99,7 @@ pip install -r requirements.txt
 
 ### Installing natten (for allin1)
 
-This is actually one of the main problem. You should install natten so that it works with allin1. But allin1 was developed using old versions of natten, hence it is suited to work with precise versions.
+This is one of the main problems. You should install natten so that it works with allin1. But allin1 was developed using old versions of natten, hence it is suited to work with precise versions.
 
 So, you should use one precise version of natten, the following:
 
@@ -85,11 +107,11 @@ So, you should use one precise version of natten, the following:
 pip install natten==0.17.3+torch220cu121 -f https://shi-labs.com/natten/wheels
 ```
 
-### Installing madmom
+### Installing automashup
 
-Then, you need to install madmom, to estimate beats and bars. This can be made using the following command:
+Finally, you can install the package automashup:
 ```bash
-pip install git+https://github.com/CPJKU/madmom
+pip install -e /path/to/automashup/files (often, it is just ".")
 ```
 
 ### Installing rubberband-cli
@@ -107,26 +129,25 @@ sudo apt install ffmpeg
 ```
 
 
-
-### Launch the app
+## GUI: Launch the barfi application
+Automashup comes with a GUI that you may launch using the following steps:
 
 > cd ./automashup/src
 
 > streamlit run app.py
 
-## Other
-
-To install and test DMC on your own: https://github.com/csteinmetz1/automix-toolkit (clone + set up (modify sklearn --> scikit-learn in the setup.py) and test directly on your machine, dont forget to modify the paths)
+## Sandbox
+Some tests were made using DMC for mixing, and should be pursued shortly. To install and test DMC on your own: https://github.com/csteinmetz1/automix-toolkit (clone + set up (modify sklearn --> scikit-learn in the setup.py) and test directly on your machine, don't forget to change the paths)
 
 ## Docker Image
 
-We have a docker image of the automashup app, it's only been tested on Linux :
+We have a Docker image of the automashup app; it's only been tested on Linux :
 https://hub.docker.com/r/gaubiche/automashup/
 
 ## Adding Mashup Methods
 
-The aim of this interface is to present multiple mashup technics.
+This interface aims to present multiple mashup techniques.
 
-You can add some to the application by creating a mashup function in the file /src/mashup.py and then modifying a little bit the file src/app.py
+You can add some to the application by creating a mashup function in the file /src/mashup.py and then modifying the file src/app.py
 
-If you want to experiment around new mashup methods, you can see Notebooks, taht show examples of working mashup methods.
+If you want to experiment with new mashup methods, you can use the /automashup-notebook/notebook.ipynb file. It shows an example of a working mashup method.

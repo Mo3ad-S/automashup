@@ -17,3 +17,6 @@ pydub
 soundfile
 pyrubberband
 pyloudnorm
+scipy
+pyyaml
+noisereduce

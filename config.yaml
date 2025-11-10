@@ -1,0 +1,51 @@
+# Configuration file for enhanced mashup pipeline
+
+# Audio settings
+audio:
+  sr: 44100  # Sample rate
+  target_lufs: -14.0  # Target loudness in LUFS
+
+# Processing settings
+processing:
+  use_gpu: true  # Use GPU when available
+  use_phase_vocoder: true  # Use phase vocoder for better quality
+  preserve_formants: true  # Preserve formants for vocals
+  crossfade_duration: 0.1  # Crossfade duration in seconds
+  safe_mode: true  # Use safe mode to prevent memory issues (disables some features)
+  max_track_samples: 50000000  # Maximum samples per track (50M = ~19 min at 44.1kHz)
+
+# Inpainting settings
+inpainting:
+  enabled: true
+  model: interpolation  # Options: interpolation, audiosr, diffwave
+  short_gap_threshold: 0.5  # Short gap threshold in seconds
+  medium_gap_threshold: 2.0  # Medium gap threshold in seconds
+
+# Enhancement settings
+enhancement:
+  enabled: true
+  denoise: true
+  deartifact: true
+  restore_harmonics: true
+
+# Mixing settings
+mixing:
+  enabled: true
+  apply_eq: true
+  apply_compression: true
+  apply_spatial: true
+  apply_ducking: true
+
+# Mastering settings
+mastering:
+  enabled: true
+  apply_limiting: true
+  apply_eq: true
+  apply_stereo_enhancement: false
+
+# Quality settings
+quality:
+  threshold: 0.7  # Quality threshold for reprocessing
+  check_artifacts: true
+  check_silences: true
+
