@@ -1,6 +1,20 @@
 import numpy as np
 import copy
+import librosa
 from typing import List, Dict, Optional, Any
+
+
+def _multi_stage_time_stretch(audio: np.ndarray, rate: float) -> np.ndarray:
+    """Apply time-stretch in smaller steps to reduce artifacts on large ratios."""
+    if rate <= 0 or len(audio) == 0:
+        return audio
+    if rate > 1.25 or rate < 0.8:
+        mid = rate ** 0.5
+        audio = librosa.effects.time_stretch(audio, rate=mid)
+        audio = librosa.effects.time_stretch(audio, rate=rate / mid)
+    else:
+        audio = librosa.effects.time_stretch(audio, rate=rate)
+    return audio
 try:
     from automashup.src.utils import closest_index
 except ImportError:
@@ -94,22 +108,27 @@ class Segment:
         # Record initial linking in processing history
         self._add_processing_step('link_track', {'track_name': track.name})
 
-    def concatenate(self):
-        # Calculate the seconds to shift the incoming beats to start where the current segment's audio ends.
+    def concatenate(self, overlap_sec: float = 0.25):
+        """Concatenate the segment to itself with a short crossfade to avoid gaps."""
         offset = len(self.audio) / self.sr
 
-        # Concatenate the beats array of the current segment
         new_beats = self.beats + offset
         self.beats = np.concatenate([self.beats, new_beats])
 
-        # Concatenate the downbeats array
         new_downbeats = self.downbeats + offset
         self.downbeats = np.concatenate([self.downbeats, new_downbeats])
 
-        # Concatenate the audio data of the two segments
-        self.audio = np.concatenate((self.audio, self.audio))
-        
-        # Record concatenation in processing history
+        overlap = int(overlap_sec * self.sr)
+        if overlap > 0 and overlap < len(self.audio):
+            fade = np.linspace(1, 0, overlap)
+            tail = self.audio[-overlap:] * fade
+            head = self.audio[:overlap] * (1 - fade)
+            blended = tail + head
+            audio_cat = np.concatenate((self.audio[:-overlap], blended, self.audio[overlap:]))
+        else:
+            audio_cat = np.concatenate((self.audio, self.audio))
+
+        self.audio = audio_cat
         self._add_processing_step('concatenate', {})
 
     def get_audio_beat_fitted(self, beat_number, tempo, duration, sr):
@@ -134,6 +153,14 @@ class Segment:
                 result.beats = []
                 result.downbeats = []
             else:
+                # If we have no beat metadata, synthesize beats to avoid silence-only segments
+                if beat_number > 0 and len(result.beats) == 0:
+                    beat_interval = 60.0 / tempo if tempo and tempo > 0 else 0.5
+                    result.beats = np.arange(beat_number) * beat_interval
+                    result.downbeats = [b for idx, b in enumerate(result.beats) if idx % 4 == 0]
+                    result.audio = np.zeros(duration)
+                    return result
+
                 # We compare the bpm of the target segment and the current segment. 
                 # If the difference is too big, half or double it
                 segment_bpm = (len(result.beats) / result.duration) if result.duration > 0 else tempo
@@ -146,14 +173,13 @@ class Segment:
                     tempo *= 2
                     beat_number //= 2
 
-                # We calculate the rate of stretch for the segment.
+                # We calculate the rate of stretch for the segment using librosa PV
                 stretch_rate = tempo / segment_bpm if segment_bpm > 0 else 1.0
                 
                 # Store original audio for quality comparison
                 original_audio = result.audio.copy()
                 
-                # Time stretching will be done by external tempo_matcher module
-                # For now, we just prepare the segment
+                result.audio = _multi_stage_time_stretch(result.audio, rate=stretch_rate)
                 result.stretch_rate = stretch_rate
                 result.target_tempo = tempo
                 result.target_beats = beat_number

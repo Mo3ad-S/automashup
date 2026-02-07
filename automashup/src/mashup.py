@@ -3,6 +3,11 @@ import librosa
 import numpy as np
 import pyrubberband as pyrb
 import pyloudnorm as pyln
+import librosa
+try:
+    from scipy.signal import butter, lfilter
+except ImportError:  # Fallback if scipy is unavailable
+    butter = lfilter = None
 
 # Mashup Technics
 # In this file, you may add mashup technics
@@ -16,25 +21,58 @@ def mashup_technic(tracks, phase_fit=False, target_loudness=-14.0):
     sr = tracks[0].sr # The first track is used to determine the target bpm
     tempo = tracks[0].bpm
     main_track_length = len(tracks[0].audio)
-    beginning_instant = tracks[0].beats[0] # beats metadata
-    beginning = beginning_instant * sr
+    beginning = 0
     mashup = np.zeros(0)
     mashup_name = ""
+
+    def _estimate_start_seconds(track):
+        """Use downbeats/beats; otherwise start at 0 to avoid misalignment."""
+        if hasattr(track, "downbeats") and getattr(track, "downbeats", []):
+            return max(0.0, track.downbeats[0])
+        if hasattr(track, "beats") and getattr(track, "beats", []):
+            return max(0.0, track.beats[0])
+        return 0.0
+
+    def _butter_highpass(audio, cutoff_hz, sr, order=2):
+        if butter is None or lfilter is None or len(audio) == 0:
+            return audio
+        nyq = 0.5 * sr
+        normal_cutoff = cutoff_hz / nyq
+        b, a = butter(order, normal_cutoff, btype='high', analog=False)
+        return lfilter(b, a, audio)
+
+    def _normalize_peak(audio, target=0.9):
+        if len(audio) == 0:
+            return audio
+        peak = np.max(np.abs(audio))
+        if peak == 0:
+            return audio
+        if peak > target:
+            audio = audio * (target / peak)
+        return audio
+
+    def _prep_stem(audio, sr, is_vocal=False):
+        cutoff = 90.0 if is_vocal else 35.0
+        audio = _butter_highpass(audio, cutoff, sr)
+        audio = _normalize_peak(audio, target=0.9)
+        return audio
+
+    starts = [_estimate_start_seconds(t) for t in tracks]
+    global_start = min(starts) if starts else 0.0
 
     # we add each track to the mashup
     for track in tracks:
         mashup_name += track.name + " " # name
         track_tempo = track.bpm
-        if track == tracks[0]:
-            track_beginning_temporal = track.beats[0]
-        else:
-            track_beginning_temporal = track.downbeats[0]
+        track_beginning_temporal = _estimate_start_seconds(track)
         track_sr = track.sr
         track_beginning = track_beginning_temporal * track_sr
-        track_audio = track.audio
+        track_audio = _prep_stem(track.audio, track_sr, is_vocal=(track == tracks[0]))
 
-        # reset first beat position
-        track_audio_no_offset = np.array(track_audio)[round(track_beginning):] 
+        # reset first beat position (and pad so all tracks line up at the earliest start)
+        offset_sec = max(0.0, track_beginning_temporal - global_start)
+        offset_samples = round(offset_sec * track_sr)
+        track_audio_no_offset = np.concatenate([np.zeros(offset_samples), np.array(track_audio)[round(track_beginning):]])
 
         # Change the bpm if there is no phase fit
         if not phase_fit:
@@ -55,6 +93,41 @@ def mashup_technic(tracks, phase_fit=False, target_loudness=-14.0):
         mashup = mashup[:main_track_length]
     else:
         mashup = increase_array_size(mashup, main_track_length)
+
+    # Simple, stable ducking of instrument bus against vocals
+    vocal = _prep_stem(tracks[0].audio, sr, is_vocal=True)
+    vocal = increase_array_size(vocal, len(mashup))
+    inst_bus = mashup - increase_array_size(tracks[0].audio, len(mashup))
+    frame = 1024
+    hop = 512
+    vocal_env = librosa.feature.rms(y=vocal, frame_length=frame, hop_length=hop)[0]
+    inst_env = librosa.feature.rms(y=inst_bus, frame_length=frame, hop_length=hop)[0]
+    # Smooth envelope (attack/release)
+    def _smooth(env, attack_ms=50, release_ms=180):
+        sm = np.zeros_like(env)
+        alpha_a = np.exp(-hop / (sr * attack_ms / 1000.0))
+        alpha_r = np.exp(-hop / (sr * release_ms / 1000.0))
+        prev = 0.0
+        for i, e in enumerate(env):
+            if e > prev:
+                prev = alpha_a * prev + (1 - alpha_a) * e
+            else:
+                prev = alpha_r * prev + (1 - alpha_r) * e
+            sm[i] = prev
+        return sm
+    vocal_env = _smooth(vocal_env)
+    inst_env = _smooth(inst_env)
+    ratio = np.where(inst_env > 1e-6, vocal_env / inst_env, 1.0)
+    gain = np.clip(ratio, 0.5, 1.0)  # up to ~6 dB duck
+    gain_samples = np.repeat(gain, hop)
+    gain_samples = gain_samples[:len(inst_bus)]
+    inst_bus = inst_bus * gain_samples
+    mashup = vocal + inst_bus
+
+    # Protect peak
+    peak = np.max(np.abs(mashup)) if len(mashup) else 0
+    if peak > 0.99:
+        mashup = mashup * (0.99 / peak)
 
     # Apply LUFS normalization to the mashup
     meter = pyln.Meter(sr)  # Create a BS.1770 loudness meter

@@ -1,5 +1,9 @@
 """
 Audio inpainting module with generative models and fallback methods.
+
+Supports multiple backends:
+- 'interpolation': Fast, lightweight crossfade/interpolation (default)
+- 'stable_audio': High-quality generative inpainting using Stable Audio Open 1.0
 """
 import numpy as np
 import torch
@@ -12,19 +16,35 @@ class AudioInpainter:
     """Audio inpainting with generative models and fallback methods."""
     
     def __init__(self, use_gpu: bool = True, model_name: str = 'interpolation'):
+        """
+        Initialize audio inpainter.
+        
+        Args:
+            use_gpu: Whether to use GPU acceleration
+            model_name: Backend to use - 'interpolation' (fast), 'stable_audio' (high quality)
+        """
         self.use_gpu = use_gpu and torch.cuda.is_available()
         self.device = torch.device('cuda' if self.use_gpu else 'cpu')
         self.model_name = model_name
         self.model = None
+        self._stable_audio_inpainter = None
         
         # Load model if needed
         if model_name != 'interpolation':
             self._load_model()
     
     def _load_model(self):
-        """Load inpainting model (placeholder for future implementation)."""
-        # This would load models like AudioSR, DiffWave, etc.
-        # For now, we use interpolation as fallback
+        """Load inpainting model based on model_name."""
+        if self.model_name == 'stable_audio':
+            try:
+                from automashup.src.inpainting.stable_audio_inpainter import StableAudioInpainter
+                self._stable_audio_inpainter = StableAudioInpainter(use_gpu=self.use_gpu)
+                print("Stable Audio inpainter initialized (model will load on first use)")
+            except ImportError as e:
+                print(f"Could not load Stable Audio: {e}")
+                print("Falling back to interpolation")
+                self.model_name = 'interpolation'
+        # Add other model backends here as needed
         pass
     
     def inpaint(self, audio: np.ndarray, silence_regions: List[Dict[str, Any]], 
@@ -65,7 +85,8 @@ class AudioInpainter:
                     result_audio,
                     start_idx,
                     end_idx,
-                    region.get('context', {})
+                    region.get('context', {}),
+                    sr=sr
                 )
             else:
                 # Long gap: use segment repetition or generative model
@@ -73,7 +94,8 @@ class AudioInpainter:
                     result_audio,
                     start_idx,
                     end_idx,
-                    region.get('context', {})
+                    region.get('context', {}),
+                    sr=sr
                 )
             
             # Replace silence with filled audio
@@ -130,14 +152,15 @@ class AudioInpainter:
         return filled
     
     def _inpaint_medium_gap(self, audio: np.ndarray, start_idx: int, 
-                           end_idx: int, context: Dict[str, Any]) -> np.ndarray:
+                           end_idx: int, context: Dict[str, Any],
+                           sr: int = 44100) -> np.ndarray:
         """Inpaint medium gaps using generative model or interpolation."""
         gap_length = end_idx - start_idx
         
-        # Try generative model if available
-        if self.model is not None:
+        # Try generative model if available (Stable Audio or other)
+        if self._stable_audio_inpainter is not None or self.model is not None:
             try:
-                filled = self._inpaint_with_model(audio, start_idx, end_idx, context)
+                filled = self._inpaint_with_model(audio, start_idx, end_idx, context, sr=sr)
                 if filled is not None:
                     return filled
             except Exception as e:
@@ -147,14 +170,15 @@ class AudioInpainter:
         return self._inpaint_intelligent_interpolation(audio, start_idx, end_idx, context)
     
     def _inpaint_long_gap(self, audio: np.ndarray, start_idx: int, 
-                         end_idx: int, context: Dict[str, Any]) -> np.ndarray:
+                         end_idx: int, context: Dict[str, Any],
+                         sr: int = 44100) -> np.ndarray:
         """Inpaint long gaps using segment repetition or generative model."""
         gap_length = end_idx - start_idx
         
-        # Try generative model if available
-        if self.model is not None:
+        # Try generative model if available (Stable Audio or other)
+        if self._stable_audio_inpainter is not None or self.model is not None:
             try:
-                filled = self._inpaint_with_model(audio, start_idx, end_idx, context)
+                filled = self._inpaint_with_model(audio, start_idx, end_idx, context, sr=sr)
                 if filled is not None:
                     return filled
             except Exception as e:
@@ -164,10 +188,28 @@ class AudioInpainter:
         return self._inpaint_segment_repetition(audio, start_idx, end_idx, context)
     
     def _inpaint_with_model(self, audio: np.ndarray, start_idx: int, 
-                           end_idx: int, context: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Inpaint using generative model (placeholder)."""
-        # This would use models like AudioSR, DiffWave, etc.
-        # For now, return None to use fallback
+                           end_idx: int, context: Dict[str, Any],
+                           sr: int = 44100) -> Optional[np.ndarray]:
+        """Inpaint using generative model."""
+        if self.model_name == 'stable_audio' and self._stable_audio_inpainter is not None:
+            try:
+                # Use Stable Audio for inpainting
+                gap_length = end_idx - start_idx
+                
+                # Generate audio for this region
+                inpainted_audio = self._stable_audio_inpainter.inpaint_region(
+                    audio, sr, start_idx, end_idx,
+                    prompt=None,  # Auto-generate prompt from context
+                    crossfade_duration=0.1
+                )
+                
+                # Extract just the inpainted region
+                return inpainted_audio[start_idx:end_idx]
+            except Exception as e:
+                print(f"Stable Audio inpainting failed: {e}")
+                return None
+        
+        # Fallback: return None to use interpolation
         return None
     
     def _inpaint_intelligent_interpolation(self, audio: np.ndarray, 

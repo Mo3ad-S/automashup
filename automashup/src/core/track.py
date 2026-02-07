@@ -32,6 +32,10 @@ class Track:
         self.audio = audio
         self.sr = sr
         self.segments = []
+        # Provide safe defaults so downstream code (segment linking, etc.) never
+        # fails when optional metadata is missing.
+        self.beats = list(metadata.get("beats", [])) if isinstance(metadata, dict) else []
+        self.downbeats = list(metadata.get("downbeats", [])) if isinstance(metadata, dict) else []
 
         # Load track metadatas
         for key in metadata.keys():
@@ -218,14 +222,13 @@ class Track:
                             len(target_segment.audio), 
                             self.sr
                         )
-                        audio = np.concatenate([audio, segment_fitted.audio])
-
-                        # reset first beat position per segment
                         track_sr = target_track.sr
                         track_beginning_temporal = target_segment.beats[0] if len(target_segment.beats) > 0 else 0
                         track_beginning = track_beginning_temporal * track_sr
-                        # reset first beat position
-                        audio = np.array(audio)[round(track_beginning):]
+                        pad_len = max(0, round(track_beginning) - len(audio))
+                        if pad_len > 0:
+                            audio = np.concatenate([np.zeros(pad_len), audio])
+                        audio = np.concatenate([audio, segment_fitted.audio])
 
                         # we add the new beats to be able to sync after
                         beats += [beats[-1] + phase_beat for phase_beat in segment_fitted.beats]
@@ -245,14 +248,13 @@ class Track:
                             len(target_segment.audio), 
                             self.sr
                         )
-                        audio = np.concatenate([audio, segment_fitted.audio])
-
-                        # reset first beat position per segment
                         track_sr = target_track.sr
                         track_beginning_temporal = target_segment.beats[0] if len(target_segment.beats) > 0 else 0
                         track_beginning = track_beginning_temporal * track_sr
-                        # reset first beat position
-                        audio = np.array(audio)[round(track_beginning):]
+                        pad_len = max(0, round(track_beginning) - len(audio))
+                        if pad_len > 0:
+                            audio = np.concatenate([np.zeros(pad_len), audio])
+                        audio = np.concatenate([audio, segment_fitted.audio])
 
                         # we add the new beats to be able to sync after
                         beats += [beats[-1] + phase_beat for phase_beat in segment_fitted.beats]

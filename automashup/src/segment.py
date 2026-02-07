@@ -1,7 +1,21 @@
 import numpy as np
 import copy
-import pyrubberband as pyrb
+import librosa
 from automashup.src.utils import closest_index
+
+
+def _multi_stage_time_stretch(audio: np.ndarray, rate: float) -> np.ndarray:
+    """Apply time-stretch in smaller steps to reduce artifacts on large ratios."""
+    if rate <= 0 or len(audio) == 0:
+        return audio
+    # Split extreme ratios into two passes for quality
+    if rate > 1.25 or rate < 0.8:
+        mid = rate ** 0.5
+        audio = librosa.effects.time_stretch(audio, rate=mid)
+        audio = librosa.effects.time_stretch(audio, rate=rate / mid)
+    else:
+        audio = librosa.effects.time_stretch(audio, rate=rate)
+    return audio
 
 # Define a Track class to represent a part of a track
 # The aim of this kind of object is to keep together the audio itself,
@@ -69,20 +83,27 @@ class Segment:
             else : 
                 self.right_transition = track.audio[round(self.end*self.sr):]
 
-    def concatenate(self):
-        # Calculate the seconds to shift the incoming beats to start where the current segment's audio ends.
+    def concatenate(self, overlap_sec: float = 0.25):
+        """Concatenate the segment to itself with a small crossfade to avoid gaps."""
         offset = len(self.audio) / self.sr
 
-        # Concatenate the beats array of the current segment
         new_beats = self.beats + offset
         self.beats = np.concatenate([self.beats, new_beats])
 
-        # Concatenate the downbeats array
         new_downbeats = self.downbeats + offset
         self.downbeats = np.concatenate([self.downbeats, new_downbeats])
 
-        # Concatenate the audio data of the two segments
-        self.audio = np.concatenate((self.audio, self.audio))
+        overlap = int(overlap_sec * self.sr)
+        if overlap > 0 and overlap < len(self.audio):
+            fade = np.linspace(1, 0, overlap)
+            tail = self.audio[-overlap:] * fade
+            head = self.audio[:overlap] * (1 - fade)
+            blended = tail + head
+            audio_cat = np.concatenate((self.audio[:-overlap], blended, self.audio[overlap:]))
+        else:
+            audio_cat = np.concatenate((self.audio, self.audio))
+
+        self.audio = audio_cat
 
 
     def get_audio_beat_fitted(self, beat_number, tempo, duration, sr):
@@ -107,22 +128,38 @@ class Segment:
                 result.beats = []
                 result.downbeats = []
             else:
+                safe_tempo = tempo if tempo and tempo > 0 else 120
+                beat_count = len(result.beats)
+                duration_minutes = result.duration if result.duration and result.duration > 0 else None
+
+                # If we have no beat metadata, synthesize beats and pad with silence
+                if beat_number > 0 and beat_count == 0:
+                    beat_interval = 60.0 / safe_tempo
+                    result.beats = np.arange(beat_number) * beat_interval
+                    result.downbeats = [b for idx, b in enumerate(result.beats) if idx % 4 == 0]
+                    result.audio = np.zeros(duration)
+                    return result
+
                 # We compare the bpm of the target segment and the current segment. 
                 # If the difference is too big, half or double it
-                segment_bpm =(len(result.beats)/result.duration)
-                if tempo / segment_bpm > 1.5:
-                    tempo /= 2
+                segment_bpm = (beat_count / duration_minutes) if (duration_minutes and beat_count > 0) else safe_tempo
+                if segment_bpm <= 0:
+                    segment_bpm = safe_tempo
+
+                tempo_ratio = safe_tempo / segment_bpm if segment_bpm else 1.0
+                if tempo_ratio > 1.5:
+                    safe_tempo /= 2
                     beat_number //= 2
                     # If we reduce the bpm to half, then the amount of beats as well so the duration stays the same
-                elif tempo / segment_bpm < 0.75:
-                    tempo *= 2
+                elif tempo_ratio < 0.75:
+                    safe_tempo *= 2
                     beat_number //= 2
                 else:
                     pass
 
-                # We calculate the rate of stretch for the segment.
-                stretch_rate = tempo / segment_bpm
-                result.audio = pyrb.time_stretch(result.audio, sr, rate=stretch_rate)
+                # We calculate the rate of stretch for the segment using librosa (phase vocoder)
+                stretch_rate = safe_tempo / segment_bpm if segment_bpm else 1.0
+                result.audio = _multi_stage_time_stretch(result.audio, rate=stretch_rate)
 
                 # We concatenate the segment to itself if it's shorter than the target
                 while len(result.beats) < beat_number:

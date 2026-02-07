@@ -356,20 +356,80 @@ class MashupEngine:
         """Simple mixing (fallback)."""
         if not tracks:
             return np.array([])
+
+        def _estimate_start_seconds(track: Track) -> float:
+            if hasattr(track, "downbeats") and getattr(track, "downbeats", []):
+                return max(0.0, track.downbeats[0])
+            if hasattr(track, "beats") and getattr(track, "beats", []):
+                return max(0.0, track.beats[0])
+            return 0.0
+
+        def _normalize_peak(audio: np.ndarray, target: float = 0.9) -> np.ndarray:
+            if len(audio) == 0:
+                return audio
+            peak = np.max(np.abs(audio))
+            if peak > target and peak > 0:
+                audio = audio * (target / peak)
+            return audio
+
+        starts = [_estimate_start_seconds(t) for t in tracks]
+        global_start = min(starts) if starts else 0.0
+
+        aligned_audios = []
+        max_length = 0
+        for track, start_time in zip(tracks, starts):
+            start_offset = max(0, int((max(0.0, start_time - global_start)) * track.sr))
+            audio_aligned = np.concatenate([np.zeros(start_offset), _normalize_peak(track.audio)])
+            aligned_audios.append(audio_aligned)
+            max_length = max(max_length, len(audio_aligned))
         
-        # Find max length
-        max_length = max(len(track.audio) for track in tracks)
-        
-        # Sum all tracks
-        mixed = np.zeros(max_length)
-        for track in tracks:
-            padded = np.pad(track.audio, (0, max_length - len(track.audio)), mode='constant')
-            mixed += padded
-        
-        # Normalize
-        max_val = np.max(np.abs(mixed))
-        if max_val > 0.95:
-            mixed = mixed * 0.95 / max_val
+        # Split vocal vs instruments for gentle ducking
+        vocal = aligned_audios[0] if aligned_audios else np.array([])
+        instruments = aligned_audios[1:] if len(aligned_audios) > 1 else []
+
+        # Pad all to same length
+        padded_instruments = []
+        for audio in instruments:
+            padded_instruments.append(np.pad(audio, (0, max_length - len(audio)), mode='constant'))
+        vocal = np.pad(vocal, (0, max_length - len(vocal)), mode='constant')
+
+        inst_bus = np.zeros(max_length)
+        for audio in padded_instruments:
+            inst_bus += audio
+
+        if max_length > 0 and len(instruments) > 0:
+            frame = 1024
+            hop = 512
+            import librosa
+            vocal_env = librosa.feature.rms(y=vocal, frame_length=frame, hop_length=hop)[0]
+            inst_env = librosa.feature.rms(y=inst_bus, frame_length=frame, hop_length=hop)[0]
+
+            def _smooth(env, attack_ms=50, release_ms=180):
+                sm = np.zeros_like(env)
+                alpha_a = np.exp(-hop / (tracks[0].sr * attack_ms / 1000.0))
+                alpha_r = np.exp(-hop / (tracks[0].sr * release_ms / 1000.0))
+                prev = 0.0
+                for i, e in enumerate(env):
+                    if e > prev:
+                        prev = alpha_a * prev + (1 - alpha_a) * e
+                    else:
+                        prev = alpha_r * prev + (1 - alpha_r) * e
+                    sm[i] = prev
+                return sm
+
+            vocal_env = _smooth(vocal_env)
+            inst_env = _smooth(inst_env)
+            ratio = np.where(inst_env > 1e-6, vocal_env / inst_env, 1.0)
+            gain = np.clip(ratio, 0.5, 1.0)  # up to ~6 dB duck on instruments
+            gain_samples = np.repeat(gain, hop)
+            gain_samples = gain_samples[:len(inst_bus)]
+            inst_bus = inst_bus * gain_samples
+
+        mixed = vocal + inst_bus
+
+        peak = np.max(np.abs(mixed)) if len(mixed) else 0
+        if peak > 0.99:
+            mixed = mixed * (0.99 / peak)
         
         return mixed
     

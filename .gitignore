@@ -1,3 +1,4 @@
-data/*
+automashup/data/*
 songs/*
 spec/*
+automashup/src/__pycache__/*

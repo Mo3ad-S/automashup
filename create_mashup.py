@@ -12,9 +12,9 @@ import os
 import sys
 import argparse
 import warnings
+import logging
 import soundfile as sf
 import numpy as np
-
 import allin1
 import automashup.src.utils as utils
 
@@ -25,7 +25,9 @@ from automashup.src.core.mashup_engine import MashupEngine  # New enhanced pipel
 from automashup.src.enhanced_utils.config_loader import load_config
 import automashup.src.mashup as mashupper  # Old approach
 
-# Suppress warnings
+# Suppress natten deprecation chatter and other noisy warnings
+logging.getLogger("natten").setLevel(logging.ERROR)
+logging.getLogger("natten.functional").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="natten")
 warnings.filterwarnings("ignore")
 
