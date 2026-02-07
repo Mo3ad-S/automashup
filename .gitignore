@@ -2,3 +2,4 @@ automashup/data/*
 songs/*
 spec/*
 automashup/src/__pycache__/*
+inpaint.ipynb
